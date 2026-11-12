@@ -574,7 +574,7 @@ function resumeRest() {
   if (!r) return;
   if (r.end <= Date.now()) { delete S.active.rest; save(); return; }
   restEnd = r.end; restTotal = r.total || 90; noticeCancelled = false;
-  showRest(); tickRest();
+  showRest(); scheduleRestNotice(); tickRest();
 }
 function tickRest() {
   const left = (restEnd - Date.now()) / 1000, visible = document.visibilityState === 'visible';
@@ -662,11 +662,26 @@ function weekStart(d) {
 const ui = { tab: 'train', sub: null, pex: null, open: null, pick: null, tpl: null, ed: null, exq: '', exg: 'Все' };
 const $app = () => document.getElementById('app');
 
+let wakeLockReq = false;
 function keepAwake() {
   try {
     const want = !!S.active && S.settings.awake !== false;
-    if (want && !wakeLock && navigator.wakeLock) navigator.wakeLock.request('screen').then(l => { wakeLock = l; l.addEventListener('release', () => { wakeLock = null; }); }).catch(() => {});
-    else if (!want && wakeLock) { wakeLock.release(); wakeLock = null; }
+    if (want && !wakeLock && !wakeLockReq && navigator.wakeLock) {
+      wakeLockReq = true;
+      navigator.wakeLock.request('screen').then(l => {
+        wakeLockReq = false;
+        const stillWant = !!S.active && S.settings.awake !== false;
+        if (!stillWant) {
+          try { l.release(); } catch (e) {}
+          return;
+        }
+        wakeLock = l;
+        l.addEventListener('release', () => { wakeLock = null; });
+      }).catch(() => { wakeLockReq = false; });
+    } else if (!want && wakeLock) {
+      wakeLock.release();
+      wakeLock = null;
+    }
   } catch (e) {}
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
@@ -674,8 +689,23 @@ document.addEventListener('focusin', ev => {
   const t = ev.target;
   if (t && t.matches && t.matches('input[inputmode]')) setTimeout(() => { try { t.select(); } catch (e) {} }, 0);
 });
+let elapsedTimer = null;
+function tickElapsed() {
+  const el = document.getElementById('elapsed');
+  if (el && S.active) el.textContent = mmss((Date.now() - new Date(S.active.start)) / 1000);
+}
+function syncElapsed() {
+  if (S.active) {
+    tickElapsed();
+    if (!elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
+  } else if (elapsedTimer) {
+    clearInterval(elapsedTimer);
+    elapsedTimer = null;
+  }
+}
 function render() {
   keepAwake();
+  syncElapsed();
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === ui.tab));
   const f = { train: vTrain, history: vHistory, progress: vProgress, more: vMore }[ui.tab];
   $app().innerHTML = f();
@@ -806,7 +836,8 @@ function cardBlockOpen(s, en) {
     h += '</div>';
   }
   h += `<div class="row" style="flex-wrap:wrap"><button class="sm ghost" data-act="ssadd" data-e="${s}">+ круг</button>${rounds > 1 ? `<button class="sm ghost" data-act="ssdel" data-e="${s}">− круг</button>` : ''}
-    <button class="sm ghost" data-act="ssunlink" data-e="${s}">Разделить</button></div></div>`;
+    <button class="sm ghost" data-act="ssunlink" data-e="${s}">Разделить</button>
+    ${ents.map((x, k) => `<button class="sm ghost danger" data-act="skipex" data-e="${s + k}">Убрать «${esc(S.ex[x.exId].name)}»</button>`).join('')}</div></div>`;
   return h;
 }
 function cardBlockClosed(s, en) {
@@ -848,13 +879,22 @@ function groupsList() {
 }
 function pickList() {
   const p = ui.pick, q = normQ(p.q);
-  const used = {};
-  sortedSessions().forEach((s, i) => s.entries.forEach(e => { used[e.exId] = i + 1; }));
+  if (!p._cache) {
+    const used = {}, last = {};
+    sortedSessions().forEach((s, i) => {
+      s.entries.forEach(e => {
+        used[e.exId] = i + 1;
+        if (e.sets && e.sets.length) last[e.exId] = e;
+      });
+    });
+    p._cache = { used, last };
+  }
+  const { used, last } = p._cache;
   let ids = Object.keys(S.ex).filter(k => !S.ex[k].hidden && (p.g === 'Все' || S.ex[k].g === p.g) && (!q || normQ(S.ex[k].name).includes(q)));
   if (p.g === 'Все' && !q) ids.sort((a, b) => (used[b] || 0) - (used[a] || 0));
   if (!ids.length) return '<div class="empty">Ничего не найдено</div>';
   return ids.map(k => {
-    const prev = lastEntryFor(k);
+    const prev = last[k];
     return `<div class="pitem" data-act="pick-ex" data-id="${k}"><div class="grow"><b>${esc(S.ex[k].name)}</b>
       <div class="muted small">${esc(S.ex[k].g)}${prev ? ' · было ' + esc(setLabel(k, prev.sets[0])) : ''}</div></div><span class="plus">+</span></div>`;
   }).join('');
@@ -972,10 +1012,11 @@ function vHDetail(id) {
     const bw = S.ex[e.exId].bw;
     h += `<div class="card"><h3>${esc(S.ex[e.exId].name)}${e.ss ? ' <span class="pill">суперсет</span>' : ''}</h3><div style="margin-top:8px">`;
     e.sets.forEach((st, si) => {
-      const key = bw ? (st.a > 0 ? 'a' : 'w') : 'w', val = bw ? (st.a > 0 ? st.a : st.w || 0) : st.w;
+      const m = bwMode(st);
+      const key = bw ? m : 'w', val = bw ? (m === 'a' ? (st.a || 0) : (st.w || 0)) : st.w;
       h += `<div class="row" style="margin-bottom:8px"><span class="muted" style="width:20px">${si + 1}</span>
         <div class="grow"><input inputmode="decimal" value="${val}" data-hs="${key}" data-id="${s.id}" data-e="${ei}" data-s="${si}">
-          ${bw ? `<button class="modebtn" data-act="hbw" data-id="${s.id}" data-e="${ei}" data-s="${si}" style="width:100%;margin-top:3px">${key === 'a' ? 'помощь' : 'доп. вес'} ⇄</button>` : '<div class="muted small" style="text-align:center">кг</div>'}</div>
+          ${bw ? `<button class="modebtn" data-act="hbw" data-id="${s.id}" data-e="${ei}" data-s="${si}" style="width:100%;margin-top:3px">${m === 'a' ? 'помощь' : 'доп. вес'} ⇄</button>` : '<div class="muted small" style="text-align:center">кг</div>'}</div>
         <div class="grow"><input inputmode="numeric" value="${st.r}" data-hs="r" data-id="${s.id}" data-e="${ei}" data-s="${si}"><div class="muted small" style="text-align:center">повторы</div></div>
         <button class="sm danger" data-act="hdelset" data-id="${s.id}" data-e="${ei}" data-s="${si}">✕</button></div>`;
     });
@@ -1121,9 +1162,15 @@ async function doExport() {
       const r = await P.Filesystem.writeFile({ path: name, data: text, directory: 'CACHE', encoding: 'utf8' });
       await P.Share.share({ title: 'Копия тренировок', url: r.uri });
     } else {
+      const blob = new Blob([text], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-      a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
     S.settings.backup = new Date().toISOString(); if (save()) toast('Копия сохранена'); render();
   } catch (e) {
@@ -1193,8 +1240,14 @@ document.addEventListener('click', ev => {
       st.done = !st.done; st.t = st.done ? Date.now() : null; save();
       if (st.done) {
         const ents = S.active.entries, br = blockRange(ents, ei);
-        if (br[1] > br[0]) { if (!ents.slice(ei + 1, br[1] + 1).some(x => x.sets.length > si)) startRest(ssRest(ents.slice(br[0], br[1] + 1).map(x => x.exId))); }
-        else startRest(exRest(ents[ei].exId));
+        if (br[1] > br[0]) {
+          const mem = ents.slice(br[0], br[1] + 1);
+          if (mem.every(x => !x.sets[si] || x.sets[si].done)) {
+            startRest(ssRest(mem.map(x => x.exId)));
+          }
+        } else {
+          startRest(exRest(ents[ei].exId));
+        }
       }
       const keep = window.scrollY; render(); window.scrollTo(0, keep); break;
     }
@@ -1203,7 +1256,16 @@ document.addEventListener('click', ev => {
       e.sets.push(Object.assign({}, last, { done: false, t: null })); save(); const k1 = window.scrollY; render(); window.scrollTo(0, k1); break;
     }
     case 'delset': { const ls = S.active.entries[ei].sets; if (ls[ls.length - 1].done && !confirm('Последний подход уже отмечен ✓. Удалить его?')) break; S.active.entries[ei].sets.pop(); save(); const k2 = window.scrollY; render(); window.scrollTo(0, k2); break; }
-    case 'skipex': { if (confirm('Убрать упражнение из этой тренировки?')) { S.active.entries.splice(ei, 1); ui.open = null; save(); render(); } break; }
+    case 'skipex': {
+      const ex = S.active.entries[ei] && S.ex[S.active.entries[ei].exId];
+      if (confirm(ex ? `Убрать «${ex.name}» из этой тренировки?` : 'Убрать упражнение из этой тренировки?')) {
+        S.active.entries.splice(ei, 1);
+        fixSS(S.active);
+        ui.open = S.active.entries.length ? Math.min(ei, S.active.entries.length - 1) : null;
+        save(); render();
+      }
+      break;
+    }
     case 'addex': openPicker('session'); break;
     case 'tpls': openTpl(); break;
     case 'awake': S.settings.awake = S.settings.awake === false; save(); render(); break;
@@ -1218,7 +1280,21 @@ document.addEventListener('click', ev => {
     case 'reststep': { const exx = S.ex[S.active.entries[ei].exId]; exx.rest = Math.min(600, Math.max(15, (exx.rest || 90) + parseInt(ds.d, 10))); save(); const k3 = window.scrollY; render(); window.scrollTo(0, k3); break; }
     case 'stepcycle': { const exs = S.ex[S.active.entries[ei].exId]; const cur = exStep(S.active.entries[ei].exId); exs.step = STEPS[(STEPS.indexOf(cur) + 1) % STEPS.length] || 1; save(); const k4 = window.scrollY; render(); window.scrollTo(0, k4); break; }
     case 'period': S.settings.per = ds.p; save(); { const k9 = window.scrollY; render(); window.scrollTo(0, k9); } break;
-    case 'delbody': if (confirm('Удалить запись веса за ' + human(ds.d) + '?')) { S.body = S.body.filter(b => b.d !== ds.d); save(); const ka = window.scrollY; render(); window.scrollTo(0, ka); } break;
+    case 'delbody': {
+      if (S.body.length <= 1) {
+        toast('Нельзя удалить последнюю запись веса');
+        break;
+      }
+      if (confirm('Удалить запись веса за ' + human(ds.d) + '?')) {
+        S.body = S.body.filter(b => b.d !== ds.d);
+        if (!S.body.length) S.body = [{ d: today(), kg: DEFAULT_BW }];
+        save();
+        const ka = window.scrollY;
+        render();
+        window.scrollTo(0, ka);
+      }
+      break;
+    }
     case 'exlist': ui.sub = { view: 'exlist' }; render(); break;
     case 'exback': ui.sub = null; render(); break;
     case 'exg': ui.exg = ds.g; render(); break;
@@ -1247,7 +1323,7 @@ document.addEventListener('click', ev => {
     case 'autorestore': {
       let au = null; try { au = JSON.parse(localStorage.getItem(KEY + '-auto')); } catch (e) {}
       if (!au || !Array.isArray(au.sessions)) { toast('Автокопия недоступна'); break; }
-      if (confirm('Заменить текущие данные автокопией (' + au.sessions.length + ' тренировок)?')) { stopRest(); const prevS = S; S = migrate(au); if (!save()) { S = prevS; render(); break; } ui.sub = null; applyTheme(); toast('Данные возвращены'); render(); }
+      if (confirm('Заменить текущие данные автокопией (' + au.sessions.length + ' тренировок)?')) { stopRest(); const prevS = S; S = migrate(au); if (!save()) { S = prevS; render(); break; } ui.sub = null; applyTheme(); toast('Данные возвращены'); render(); resumeRest(); }
       break;
     }
     case 'bwmode': {
@@ -1257,13 +1333,34 @@ document.addEventListener('click', ev => {
     }
     case 'afeel': S.active.feel = S.active.feel === +ds.v ? 0 : +ds.v; save(); { const k6 = window.scrollY; render(); window.scrollTo(0, k6); } break;
     case 'hfeel': { const hs = S.sessions.find(x => x.id === ds.id); hs.feel = hs.feel === +ds.v ? 0 : +ds.v; save(); const k7 = window.scrollY; render(); window.scrollTo(0, k7); break; }
-    case 'hbw': { const hb = S.sessions.find(x => x.id === ds.id).entries[ei].sets[si]; if (hb.a > 0) { hb.w = hb.a; hb.a = 0; } else { hb.a = hb.w || 0; hb.w = 0; } save(); const k8 = window.scrollY; render(); window.scrollTo(0, k8); break; }
+    case 'hbw': {
+      const hb = S.sessions.find(x => x.id === ds.id).entries[ei].sets[si];
+      if (bwMode(hb) === 'w') {
+        hb.a = hb.w || 0;
+        hb.w = 0;
+        hb.m = 'a';
+      } else {
+        hb.w = hb.a || 0;
+        hb.a = 0;
+        hb.m = 'w';
+      }
+      save(); const k8 = window.scrollY; render(); window.scrollTo(0, k8); break;
+    }
     case 'sslink': {
       const ents = S.active.entries, pv = ents[ei - 1];
       if (!pv) break;
       const g = pv.ss || ('g' + uid());
-      pv.ss = g; ents[ei].ss = g; ui.open = ei; save(); render();
-      { const fc = document.querySelector('[data-card="' + blockRange(ents, ei)[0] + '"]'); if (fc) fc.scrollIntoView({ block: 'start' }); }
+      pv.ss = g; ents[ei].ss = g;
+      const br = blockRange(ents, ei);
+      const maxSets = Math.max.apply(null, ents.slice(br[0], br[1] + 1).map(x => x.sets.length));
+      for (let k = br[0]; k <= br[1]; k++) {
+        while (ents[k].sets.length < maxSets) {
+          const l = ents[k].sets[ents[k].sets.length - 1] || { w: 0, r: 10 };
+          ents[k].sets.push(Object.assign({}, l, { done: false, t: null }));
+        }
+      }
+      ui.open = br[0]; save(); render();
+      { const fc = document.querySelector('[data-card="' + br[0] + '"]'); if (fc) fc.scrollIntoView({ block: 'start' }); }
       break;
     }
     case 'ssunlink': { const ents = S.active.entries, br = blockRange(ents, ei); for (let k = br[0]; k <= br[1]; k++) delete ents[k].ss; save(); const kb = window.scrollY; render(); window.scrollTo(0, kb); break; }
@@ -1326,7 +1423,15 @@ document.addEventListener('click', ev => {
       if (ex) ex.kg = v; else S.body.push({ d, kg: v });
       save(); render(); break;
     }
-    case 'saverest': S.settings.rest = Math.min(600, Math.max(10, Math.round(num(document.getElementById('restIn').value) || 90))); save(); toast('Сохранено'); break;
+    case 'saverest': {
+      const el = document.getElementById('restIn');
+      const val = Math.min(600, Math.max(15, Math.round(num(el ? el.value : 0) || 90)));
+      S.settings.rest = val;
+      if (el) el.value = val;
+      save();
+      toast('Сохранено');
+      break;
+    }
     case 'export': doExport(); break;
     case 'import': { const f = document.getElementById('file'); f.onchange = () => { if (f.files[0]) doImport(f.files[0]); }; f.click(); break; }
     case 'reset': if (confirm('Удалить ВСЕ данные без возможности восстановления?') && confirm('Точно удалить?')) { stopRest(); S = seed(); try { ['-auto', '-auto-at', '-corrupt'].forEach(s => localStorage.removeItem(KEY + s)); } catch (e) {} save(); ui.sub = null; applyTheme(); render(); } break;
@@ -1353,23 +1458,41 @@ document.addEventListener('input', ev => {
     const s = S.sessions.find(x => x.id === t.dataset.id); const st = s.entries[+t.dataset.e].sets[+t.dataset.s];
     const k = t.dataset.hs; st[k] = k === 'r' ? Math.min(999, Math.max(0, Math.round(num(t.value)))) : Math.min(2000, Math.max(0, num(t.value))); save();
   } else if (t.dataset.p) {
-    const it = S.plan[+t.dataset.d].items[+t.dataset.i];
-    if (t.dataset.p === 'sets') it.sets = Math.min(20, Math.max(1, Math.round(num(t.value)) || 1)); else it.reps = t.value.slice(0, 20);
-    save();
+    const it = S.plan[+t.dataset.d] && S.plan[+t.dataset.d].items[+t.dataset.i];
+    if (it) {
+      if (t.dataset.p === 'sets') it.sets = Math.min(20, Math.max(1, Math.round(num(t.value)) || 1));
+      else it.reps = t.value.slice(0, 20);
+      save();
+    }
   }
 });
 document.addEventListener('change', ev => {
   const t = ev.target; const a = t.dataset.actChange;
   if (t.dataset.k != null && t.dataset.e != null && S.active && S.active.entries[+t.dataset.e]) t.value = S.active.entries[+t.dataset.e].sets[+t.dataset.s][t.dataset.k] || 0;
   if (t.dataset.hs) { const hs = S.sessions.find(x => x.id === t.dataset.id); if (hs) t.value = hs.entries[+t.dataset.e].sets[+t.dataset.s][t.dataset.hs] || 0; }
+  if (t.dataset.p === 'sets') { const it = S.plan[+t.dataset.d] && S.plan[+t.dataset.d].items[+t.dataset.i]; if (it) t.value = it.sets; }
   if (a === 'pex') { ui.pex = t.value; render(); }
-  if (a === 'hdate') { const s = S.sessions.find(x => x.id === t.dataset.id); if (s && okDate(t.value)) { s.d = t.value; save(); render(); } else if (s) t.value = s.d; }
+  if (a === 'hdate') {
+    const s = S.sessions.find(x => x.id === t.dataset.id);
+    if (s && okDate(t.value)) {
+      const oldStartMs = s.start ? new Date(s.start).getTime() : 0;
+      const oldEndMs = s.end ? new Date(s.end).getTime() : 0;
+      const durMs = (oldStartMs && oldEndMs && oldEndMs >= oldStartMs) ? (oldEndMs - oldStartMs) : 0;
+      s.d = t.value;
+      if (s.start && typeof s.start === 'string' && s.start.indexOf('T') >= 0) {
+        s.start = t.value + s.start.slice(s.start.indexOf('T'));
+      } else {
+        s.start = t.value + 'T12:00:00.000Z';
+      }
+      if (durMs > 0) {
+        s.end = new Date(new Date(s.start).getTime() + durMs).toISOString();
+      } else if (s.end && typeof s.end === 'string' && s.end.indexOf('T') >= 0) {
+        s.end = t.value + s.end.slice(s.end.indexOf('T'));
+      }
+      save(); render();
+    } else if (s) t.value = s.d;
+  }
 });
-
-setInterval(() => {
-  const el = document.getElementById('elapsed');
-  if (el && S.active) el.textContent = mmss((Date.now() - new Date(S.active.start)) / 1000);
-}, 1000);
 
 
 function applyTheme() {

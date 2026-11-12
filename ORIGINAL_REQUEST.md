@@ -1,0 +1,44 @@
+# Original User Request
+
+## Parameters
+[skip-interview]
+Autonomous run; all technical and project decisions made by autonomous team.
+
+## Initial Request — 2026-11-12T22:33:58Z
+
+Общая структура и состояние сборки
+Состав репозитория: design.md, www/index.html (26 строк), www/style.css (237 строк), www/app.js (1388 строк, ~97 КБ), иконка app-icon.png (512×512 PNG) и Trenirovki.apk (~3.75 МБ).
+Синхронность с APK: файлы assets/public/{index.html,style.css,app.js} внутри Trenirovki.apk побайтово совпадают по SHA-256 с www/* (appId: com.rytov.workout, appName: Тренировки).
+Кросс-файловая связность: все классы/ID в index.html и действия data-act в app.js согласованы. Единственный неиспользуемый селектор в CSS — .day / .day .badge (style.css).
+Архитектура: монолитный офлайн-SPA на чистом JS с хранением в localStorage (workout-log-v1 + автобэкап workout-log-v1-auto), двумя тёмными темами (steel и chalk, где светлая только hero-карточка) и мостом к нативным плагинам Capacitor.
+Расхождения с документацией (design.md)
+Нет исходников сборки: в проекте отсутствуют package.json, capacitor.config.*, папка android/ и запасной single-file HTML, упомянутый в design.md и design.md — APK сейчас нельзя пересобрать из этого каталога.
+Уведомления и разрешения Android: design.md, design.md и design.md прямо исключают уведомления и лишние разрешения, однако app.js и экран настроек (app.js) используют @capacitor/local-notifications, а манифест APK содержит POST_NOTIFICATIONS, SCHEDULE_EXACT_ALARM, USE_EXACT_ALARM, RECEIVE_BOOT_COMPLETED, WAKE_LOCK (INTERNET действительно отсутствует).
+Мелкие расхождения по ТЗ: напоминание о бэкапе срабатывает раз в 7 дней (app.js) вместо «раз в 2 недели» (design.md, app.js); в редакторе плана (app.js) нельзя переименовать дни, сменить день недели или настроить суперсеты заранее (только во время активной тренировки).
+Подтверждённые баги в логике (www/app.js)
+Переключение режима гравитрона (hbw) в истории (app.js, app.js): при нулевых a и w режим определяется как 'w', а клик по hbw оставляет a=0, w=0 — пустой подход в истории невозможно переключить на «помощь».
+Границы таймера отдыха (settings.rest): saverest (app.js) разрешает минимум 10 с (и не обновляет #restIn.value), но cleanData (app.js) при следующем запуске зажимает значение в [15, 600].
+Суперсеты (app.js, app.js, app.js):
+при связывании (sslink) число подходов не выравнивается;
+при отметке подхода (done) проверяются только последующие упражнения блока (ents.slice(ei + 1, ...)), поэтому отметка второго упражнения раньше первого сразу запускает таймер отдыха;
+упражнение внутри блока суперсета нельзя удалить без предварительного разрыва связи (ssunlink).
+Импорт с активным таймером (app.js): resumeRest() восстанавливает только внутренний отсчёт, не вызывая scheduleRestNotice().
+Гонка в keepAwake() (app.js): после await/then от navigator.wakeLock.request('screen') не проверяется, нужен ли ещё wake lock (при быстром сбросе тренировки может остаться висящий WakeLockSentinel).
+Даты, валидация и мелкие утечки:
+hdate (app.js) меняет s.d, не обновляя s.start; будущие даты не отфильтровываются в сводках/графиках (app.js, app.js, app.js);
+data-p="sets" (app.js) не нормализует поле на change; delbody (app.js) позволяет удалить все записи веса;
+URL.createObjectURL без revokeObjectURL (app.js); постоянный 1-секундный setInterval для #elapsed даже вне тренировки (app.js);
+pickList() (app.js) на каждый ввод в поиске перебирает историю в цикле по всем упражнениям;
+прямых XSS через innerHTML не найдено (esc() и cleanData() экранируют и валидируют ввод), BAD_KEYS (app.js) — неиспользуемая константа.
+Подтверждённые проблемы UI/вёрстки и доступности (www/index.html, www/style.css)
+Совместимость с Android 8 (design.md): color-mix(in srgb, ...) (style.css, L118, L206, L212) требует Chromium/WebView 111+ — без фолбэка на необновлённом WebView Android 8 пропадут фоны тегов, кнопок режима и подсветка открытых карточек.
+Перебитый media query: @media (max-width: 360px) { .stepper input { font-size: 20px; } } (style.css) никогда не применяется, так как ниже перекрывается .stepper input { font-size: clamp(16px, 5vw, 24px); } (style.css).
+Мелкие дефекты UI: жёсткий bottom:150px у #toast (app.js) без safe-area-inset-bottom, заниженная тач-зона min-height: 34px у .modebtn (style.css), отсутствие select:focus (style.css), невидимый зазор из transparent в box-shadow у .wkd.done.today i (style.css) и каскадные дубли в хвосте файла (style.css).
+A11y и стартовый рендер: index.html не обновляет meta[name="theme-color"] под тему chalk до старта app.js, нет prefers-reduced-motion, а у #tabs, #rest и декоративных SVG (index.html) отсутствуют aria-label / aria-current / aria-live / aria-hidden.
+
+создай максимальное количество пчел и пусть они работают над улучшением,там критик критика помощники помощников разработчиков и так далее,пусть работают над улучшением,можешь провести коротенький аудит
+
+## Follow-up — 2026-11-12T22:35:59Z
+
+Пользователь сообщил: "короче я уйду,пусть вопросы которые появяться решат сами".
+Действуйте полностью автономно. Пропустите этап интервью ([skip-interview]), принимайте все технические и проектные решения самостоятельно, руководствуясь лучшими практиками, и сразу приступайте к аудиту, исправлению найденных багов и улучшению проекта в c:\Users\rytov\tranning app.

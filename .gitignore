@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build outputs
+dist/
+
+# Agent & IDE state
+.agents/
+.system_generated/
+*.tmp
+*.log
