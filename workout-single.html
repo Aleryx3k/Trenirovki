@@ -5,7 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0c1117">
 <title>Тренировки</title>
-<script>try { var __t = JSON.parse(localStorage.getItem("workout-log-v1")).settings.theme; if (__t === "chalk") { document.documentElement.setAttribute("data-theme", "chalk"); var __m = document.querySelector('meta[name="theme-color"]'); if (__m) __m.setAttribute("content", "#170b0e"); } } catch (e) {}</script>
+<script>
+try {
+  var __raw = localStorage.getItem("workout-log-v1");
+  if (__raw) {
+    var __data = JSON.parse(__raw);
+    if (__data && __data.settings && __data.settings.theme === "chalk") {
+      document.documentElement.setAttribute("data-theme", "chalk");
+      var __m = document.querySelector('meta[name="theme-color"]');
+      if (__m) __m.setAttribute("content", "#170b0e");
+    }
+  }
+} catch (e) {}
+</script>
 <style>
 /* Inlined from www/style.css */
 /* ===== темы ===== */
@@ -20,6 +32,10 @@
   --r: 20px; --rb: 16px; --ri: 12px;
   --shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 6px 18px rgba(0,0,0,.25);
   --card-border: 1px solid var(--line);
+  --card-open-border: #56728b;
+  --accent-tint: rgba(123, 165, 201, 0.14);
+  --accent-tint-subtle: rgba(123, 165, 201, 0.08);
+  --hero-ring-gap: #1c2838;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --fnum: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --tw: 800; --tls: -0.02em; --rdone: 50%;
@@ -36,6 +52,10 @@ html[data-theme="chalk"] {
   --r: 10px; --rb: 8px; --ri: 8px;
   --shadow: 0 3px 0 rgba(0,0,0,.35);
   --card-border: 1.5px solid var(--line);
+  --card-open-border: #a2794d;
+  --accent-tint: rgba(232, 184, 98, 0.14);
+  --accent-tint-subtle: rgba(232, 184, 98, 0.08);
+  --hero-ring-gap: #f5efe6;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --fnum: "Roboto Condensed", "sans-serif-condensed", "Arial Narrow", system-ui, sans-serif;
   --tw: 800; --tls: -0.01em; --rdone: 8px;
@@ -69,7 +89,7 @@ h3 { font-size: 16px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
 
 .card { background: var(--surface); border: var(--card-border); border-radius: var(--r); padding: 14px; margin-bottom: 12px; box-shadow: var(--shadow); }
 .card.open {
-  border-color: var(--accent);
+  border-color: var(--card-open-border);
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
 }
 .card[data-act]:active { filter: brightness(1.15); }
@@ -77,7 +97,7 @@ h3 { font-size: 16px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
 button { font: inherit; color: var(--text); background: var(--surface2); border: 0; border-radius: var(--rb);
   padding: 12px 14px; min-height: 48px; font-weight: 600; transition: transform .08s ease, filter .12s ease; }
 button:active { transform: scale(.97); filter: brightness(1.12); }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button.primary { background: var(--btn-grad); color: var(--accent-ink); font-weight: 800; box-shadow: var(--glow); }
 button.danger { color: var(--danger); } button.ghost { background: transparent; box-shadow: none; }
 button.block { width: 100%; }
@@ -85,9 +105,8 @@ button.sm { min-height: 42px; padding: 6px 12px; font-size: 14px; border-radius:
 button.big { min-height: 58px; font-size: 18px; letter-spacing: -0.01em; }
 
 textarea { font: inherit; color: var(--text); background: var(--surface2); border: 1.5px solid transparent; border-radius: var(--ri); padding: 10px; width: 100%; resize: vertical; min-height: 64px; }
-textarea:focus { border-color: var(--accent); outline: 0; }
 input, select { font: inherit; color: var(--text); background: var(--surface2); border: 1.5px solid transparent; border-radius: var(--ri); padding: 8px; min-height: 44px; width: 100%; }
-input:focus, select:focus { border-color: var(--accent); }
+input:focus, select:focus, textarea:focus { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 1px; }
 input[inputmode] { text-align: center; }
 
 /* ===== нижнее меню ===== */
@@ -119,8 +138,8 @@ html[data-theme="chalk"] .ring .fg { stroke: #b4572a; }
 .wkd.done i { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 800; }
 html[data-theme="chalk"] .wkd.done i { background: #b4572a; border-color: #b4572a; color: #fff; }
 .wkd.today { color: var(--hero-text); font-weight: 800; }
-.wkd.today i { box-shadow: 0 0 0 2px #1c2838, 0 0 0 4px var(--accent); }
-html[data-theme="chalk"] .wkd.today i { box-shadow: 0 0 0 2px #f5efe6, 0 0 0 4px #b4572a; }
+.wkd.today i { box-shadow: 0 0 0 2px var(--hero-ring-gap), 0 0 0 4px var(--accent); }
+html[data-theme="chalk"] .wkd.today i { box-shadow: 0 0 0 2px var(--hero-ring-gap), 0 0 0 4px #b4572a; }
 .btn-start { width: 100%; min-height: 58px; font-size: 18px; font-weight: 800; background: var(--btn-grad); color: var(--accent-ink); box-shadow: var(--glow); }
 html[data-theme="chalk"] .btn-start { background: #26120f; color: #f5efe6; }
 .btn-alt { width: 100%; margin-top: 8px; min-height: 44px; background: transparent; color: var(--hero-text); border: 1.5px solid var(--hero-line); }
@@ -139,7 +158,7 @@ html[data-theme="chalk"] .btn-start { background: #26120f; color: #f5efe6; }
 .ex-head { margin-bottom: 10px; }
 .ex-tag {
   display: inline-block; font-size: 12px; font-weight: 700; color: var(--accent);
-  background: var(--surface2);
+  background: var(--accent-tint);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   padding: 2px 10px; border-radius: 999px; margin-bottom: 6px;
 }
@@ -153,10 +172,15 @@ html[data-theme="chalk"] .btn-start { background: #26120f; color: #f5efe6; }
 .stepper button { min-height: 50px; padding: 0; font-size: 22px; font-weight: 500; background: var(--surface2); border-radius: calc(var(--ri) + 2px); }
 .stepper input {
   padding: 4px 0; min-height: 50px; min-width: 0;
-  font-family: var(--fnum); font-weight: 800; font-size: clamp(16px, 5vw, 24px);
+  font-family: var(--fnum); font-weight: 800;
+  font-size: 20px;
+  font-size: clamp(16px, 5vw, 24px);
   font-variant-numeric: tabular-nums; letter-spacing: -0.02em; background: transparent;
 }
-html[data-theme="chalk"] .stepper input { font-size: clamp(15px, 4.6vw, 24px); }
+html[data-theme="chalk"] .stepper input {
+  font-size: 19px;
+  font-size: clamp(15px, 4.6vw, 24px);
+}
 .set .ok { min-height: 50px; width: 52px; padding: 0; font-size: 22px; border-radius: var(--rdone); background: var(--surface2); color: var(--muted); }
 .set.done .ok { background: var(--ok); color: #04210f; }
 .set.done .stepper input { color: var(--muted); }
@@ -227,7 +251,7 @@ html[data-theme="chalk"] .hero .pr { background: #26120f; color: #f5efe6; }
 .modebtn {
   display: flex; align-items: center; justify-content: center; width: 100%; min-height: 44px;
   padding: 4px 8px; font-size: 11px; font-weight: 700;
-  background: var(--surface2);
+  background: var(--accent-tint);
   background: color-mix(in srgb, var(--accent) 15%, transparent);
   color: var(--accent); border-radius: 8px; margin-bottom: 3px; text-align: center;
 }
@@ -237,7 +261,7 @@ html[data-theme="chalk"] .hero .pr { background: #26120f; color: #f5efe6; }
 
 .ssblock {
   border-left: 3px solid var(--accent);
-  background: var(--surface2);
+  background: var(--accent-tint-subtle);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   border-radius: 4px var(--ri) var(--ri) 4px; margin: 6px 0; padding: 0 6px 0 10px;
 }
@@ -247,6 +271,20 @@ html[data-theme="chalk"] .hero .pr { background: #26120f; color: #f5efe6; }
 .round { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; }
 .round-t { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
 .ssname { font-weight: 700; font-size: 14px; margin: 8px 0 4px; }
+
+/* всплывающие уведомления */
+#toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  background: var(--surface2); color: var(--text);
+  border: 1px solid var(--line); padding: 10px 18px; border-radius: 12px;
+  z-index: 50; font-size: 14px; font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0,0,0,.4); pointer-events: none;
+  max-width: 90vw; text-align: center; display: none;
+}
+body.resting #toast {
+  bottom: calc(var(--rest-pad, 160px) + env(safe-area-inset-bottom));
+}
 
 /* ===== медиазапросы адаптивности и a11y ===== */
 @media (max-width: 420px) {
@@ -277,8 +315,9 @@ html[data-theme="chalk"] .hero .pr { background: #26120f; color: #f5efe6; }
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  button:active {
-    transform: none;
+  button:active, .card[data-act]:active {
+    transform: none !important;
+    filter: none !important;
   }
 }
 
@@ -288,17 +327,18 @@ html[data-theme="chalk"] .hero .pr { background: #26120f; color: #f5efe6; }
 </head>
 <body>
 <main id="app"></main>
-<div id="rest" class="rest hidden" role="status" aria-live="polite">
+<aside id="rest" class="rest hidden" role="timer" aria-label="Таймер отдыха">
   <span id="restText">Отдых 1:30</span>
-  <button type="button" data-act="rest-add">+15с</button>
-  <button type="button" data-act="rest-stop">Пропустить</button>
-</div>
+  <button type="button" data-act="rest-add" aria-label="Добавить 15 секунд отдыха">+15с</button>
+  <button type="button" data-act="rest-stop" aria-label="Пропустить отдых">Пропустить</button>
+</aside>
 <nav id="tabs" aria-label="Основная навигация">
   <button type="button" data-tab="train" class="on" aria-current="page"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/></svg>Тренировка</button>
   <button type="button" data-tab="history"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>История</button>
   <button type="button" data-tab="progress"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15l3.5-4 3 2.5L19 8"/></svg>Прогресс</button>
   <button type="button" data-tab="more"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14"/><circle cx="9" cy="7" r="1.6" fill="currentColor"/><circle cx="15" cy="12" r="1.6" fill="currentColor"/><circle cx="8" cy="17" r="1.6" fill="currentColor"/></svg>Ещё</button>
 </nav>
+<div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 <script>
 /* Inlined from www/app.js */
 'use strict';
@@ -364,7 +404,6 @@ const LIB = {
   neckext: { name: 'Разгибания шеи', g: 'Шея и трапеции', rest: 45 },
 };
 function libCopy() { const o = {}; for (const k in LIB) o[k] = Object.assign({}, LIB[k]); return o; }
-const BAD_KEYS = ['__proto__', 'constructor', 'prototype'];
 const okId = id => typeof id === 'string' && /^[A-Za-z0-9_:.-]{1,60}$/.test(id) && !(id in Object.prototype);
 const okIso = s => typeof s === 'string' && !isNaN(Date.parse(s));
 const okDate = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && s >= '2000-01-01' && s <= '2100-12-31' && fmtDate(parseDate(s)) === s;
@@ -638,12 +677,34 @@ const TPL_GROUPS = [
     { id: 'ppl-pull', name: 'Pull (тяги)', desc: 'Спина, задняя дельта, бицепс', ex: [['pullup', 4, '6–10'], ['rowcable', 3, '8–12'], ['rowdb', 3, '8–12'], ['facepull', 3, '12–15'], ['shrug', 3, '10–15'], ['curlbb', 3, '8–10'], ['hammer', 2, '10–12']] },
     { id: 'ppl-legs', name: 'Legs (ноги)', desc: 'Квадрицепс, бицепс бедра, икры, пресс', ex: [['squat', 4, '6–8'], ['rdl', 3, '8–10'], ['legpress', 3, '10–12'], ['legcurl', 3, '10–12'], ['legext', 3, '12–15'], ['calf', 4, '10–15'], ['crunch', 3, '12–15']] },
   ] },
+  { title: 'Starting Strength · 5×5 (Сила)', note: 'Классическая линейная силовая программа. 3 дня в неделю, акцент на базовые движения 5 по 5.', items: [
+    { id: 'ss-a', name: '5×5 День A', desc: 'Присед, жим лёжа, тяга в наклоне, пресс', ex: [['squat', 5, '5'], ['benchbb', 5, '5'], ['rowbb', 5, '5'], ['cablecrunch', 3, '10–12']] },
+    { id: 'ss-b', name: '5×5 День B', desc: 'Присед, армейский жим, подтягивания, брусья', ex: [['squat', 5, '5'], ['ohpbb', 5, '5'], ['pullup', 4, '5–8'], ['dips', 3, '8–10']] },
+  ] },
+  { title: 'Золотая эра · Сплит Арнольда', note: 'Классический 3-дневный сплит Арнольда Шварценеггера с суперсетами мышц-антагонистов.', items: [
+    { id: 'arnold-cb', name: 'Грудь и спина (Арнольд)', desc: 'Антагонистические суперсеты: жимы + подтягивания и тяги', ex: [['benchbb', 4, '8–10'], ['pullup', 4, '8–10'], ['incdb', 3, '10–12'], ['rowcable', 3, '10–12'], ['cablefly', 3, '12–15'], ['plover', 3, '12–15']] },
+    { id: 'arnold-sa', name: 'Плечи и руки (Арнольд)', desc: 'Жимы, махи и суперсеты на бицепс + трицепс', ex: [['ohpdb', 4, '8–12'], ['latraise', 4, '12–15'], ['curlbb', 3, '8–10'], ['skull', 3, '8–10'], ['hammer', 3, '10–12'], ['pushdown', 3, '10–12']] },
+    { id: 'arnold-l', name: 'Ноги и пресс (Арнольд)', desc: 'Приседания, румынская тяга, жим ногами, икры, пресс', ex: [['squat', 4, '8–10'], ['rdl', 4, '8–10'], ['legpress', 3, '10–12'], ['legcurl', 3, '10–12'], ['calf', 4, '15'], ['legraise', 3, '15']] },
+  ] },
+  { title: 'Калистеника · Турники и брусья', note: 'Офлайн-программа со своим весом: тренировки дома или на спортплощадке без отягощений.', items: [
+    { id: 'cal-upper', name: 'Воркаут: Верх тела', desc: 'Подтягивания, брусья, подтягивания обратным хватом, отжимания, пресс', ex: [['pullup', 4, '6–10'], ['dips', 4, '8–12'], ['chinup', 3, '6–10'], ['pushup', 4, '15–20'], ['legraise', 4, '10–15']] },
+    { id: 'cal-lower', name: 'Воркаут: Низ и кор', desc: 'Выпады, гиперэкстензия, икры, пресс и ролик', ex: [['lunge', 4, '12–15'], ['hyper', 4, '12–15'], ['calf', 4, '15–20'], ['abwheel', 4, '8–12'], ['crunch', 4, '15–20']] },
+  ] },
+  { title: 'Бро-сплит · 5 дней (по группам)', note: 'Классика бодибилдинга: отдельная группа мышц в каждый тренировочный день.', items: [
+    { id: 'bro-chest', name: 'Грудь (День 1)', desc: 'Жим лёжа, наклонный жим гантелей, тренажёр, бабочка, брусья', ex: [['benchbb', 4, '8–10'], ['incdb', 4, '8–12'], ['chestpress', 3, '10–12'], ['cablefly', 3, '12–15'], ['dips', 3, '8–10']] },
+    { id: 'bro-back', name: 'Спина (День 2)', desc: 'Подтягивания, тяга штанги, верхний блок, тяга к поясу, гиперэкстензия', ex: [['pullup', 4, '6–10'], ['rowbb', 4, '8–10'], ['latpd', 4, '8–12'], ['rowcable', 3, '10–12'], ['hyper', 3, '12–15']] },
+    { id: 'bro-shoulders', name: 'Плечи (День 3)', desc: 'Армейский жим, жим Арнольда, махи в стороны, задняя дельта, шраги', ex: [['ohpbb', 4, '8–10'], ['arnold', 3, '10–12'], ['latraise', 4, '12–15'], ['reardelt', 4, '12–15'], ['shrug', 4, '12–15']] },
+    { id: 'bro-arms', name: 'Руки (День 4)', desc: 'Суперсеты бицепс + трицепс: штанга, узкий жим, молотки, французский жим', ex: [['curlbb', 4, '8–10'], ['closebp', 4, '8–10'], ['hammer', 3, '10–12'], ['skull', 3, '8–10'], ['curlcable', 3, '12–15'], ['pushdown', 3, '10–12']] },
+    { id: 'bro-legs', name: 'Ноги и пресс (День 5)', desc: 'Присед, жим ногами, румынская тяга, сгибания ног, икры, пресс', ex: [['squat', 4, '8–10'], ['legpress', 4, '10–12'], ['rdl', 4, '8–10'], ['legcurl', 3, '10–12'], ['calf', 4, '15'], ['cablecrunch', 4, '12–15']] },
+  ] },
 ];
 // пары суперсетов: индексы упражнений внутри шаблона (идут подряд, отдых после пары)
 const TPL_SS = {
   'fb-a': [[4, 5]], 'fb-b': [[1, 2]], 'fb-c': [[1, 2], [5, 6]],
   'ul-ua': [[4, 5]], 'ul-la': [[4, 5]], 'ul-ub': [[0, 1], [2, 3], [4, 5], [6, 7]], 'ul-lb': [[3, 4], [5, 6]],
   'ppl-push': [[3, 4], [5, 6]], 'ppl-pull': [[3, 4], [5, 6]], 'ppl-legs': [[3, 4], [5, 6]],
+  'arnold-cb': [[0, 1], [2, 3], [4, 5]], 'arnold-sa': [[2, 3], [4, 5]],
+  'bro-arms': [[0, 1], [2, 3], [4, 5]],
 };
 TPL_GROUPS.forEach(g => g.items.forEach(t => (TPL_SS[t.id] || []).forEach(p => { t.ex[p[0]][3] = t.ex[p[1]][3] = 's' + p[0]; })));
 function planDefault(exId) {

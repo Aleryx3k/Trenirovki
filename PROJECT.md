@@ -94,9 +94,9 @@ Every feature identified during the Survey phase mapped to its assigned mileston
 
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Build Infra & Automation | Reproducible `package.json`, Capacitor config, standalone HTML bundler script, automated Node.js test harness | none | IN_PROGRESS (Conv: 7d3a872e-77ae-4681-8681-201cc516803c) |
-| M2 | Core Logic & Invariants | Fix all 14 logic, state, timing, leak, and performance defects in `www/app.js` | M1 | PLANNED |
-| M3 | UI, Styling & Accessibility | Android 8 CSS fallbacks, media query cascade fix, touch targets, safe-area toast, A11y ARIA attributes, theme boot sync | M1 | PLANNED |
+| M1 | Build Infra & Automation | Reproducible `package.json`, Capacitor config, standalone HTML bundler script, automated Node.js test harness | none | DONE |
+| M2 | Core Logic & Invariants | Fix all 14 logic, state, timing, leak, and performance defects in `www/app.js` | M1 | IN_PROGRESS (Conv: 3efd4851-7776-476d-af40-03e01215253b) |
+| M3 | UI, Styling & Accessibility | Android 8 CSS fallbacks, media query cascade fix, touch targets, safe-area toast, A11y ARIA attributes, theme boot sync | M1 | IN_PROGRESS (Conv: daef91ca-ead6-4a9e-a9ef-79f32d4ef280) |
 | M4 | E2E Testing & Final Gate | 100% pass on E2E test suite (Tiers 1–4) + Adversarial Coverage Hardening (Tier 5) + Forensic Audit | M2, M3 | PLANNED |
 | E2E | E2E Testing Track | Independent opaque-box 4-tier test suite & harness | none | IN_PROGRESS (Conv: a5f03362-c92a-481c-a521-c2436d455f24) |
 
