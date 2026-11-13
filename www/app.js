@@ -475,7 +475,10 @@ function finishSession() {
   for (const e of a.entries) {
     const sets = e.sets.filter(s => s.done && s.r > 0).map(s => {
       const o = { w: s.w || 0, r: s.r };
-      if (S.ex[e.exId].bw) o.a = s.a || 0;
+      if (S.ex[e.exId].bw) {
+        o.a = s.a || 0;
+        if (s.m) o.m = s.m;
+      }
       return o;
     });
     if (sets.length) entries.push(e.ss ? { exId: e.exId, sets, ss: e.ss } : { exId: e.exId, sets });
@@ -495,6 +498,7 @@ function finishSession() {
   S.sessions.push(sess);
   S.active = null;
   stopRest();
+  stopElapsed();
   save();
   snapshot();
   ui.tab = 'train'; ui.sub = { view: 'summary', id: sess.id };
@@ -593,7 +597,7 @@ function extendRest(sec) {
 function resumeRest() {
   const r = S.active && S.active.rest;
   if (!r) return;
-  if (r.end <= Date.now()) { delete S.active.rest; save(); return; }
+  if (!isFinite(r.end) || r.end <= Date.now()) { delete S.active.rest; save(); return; }
   restEnd = r.end; restTotal = r.total || 90; noticeCancelled = false;
   showRest(); scheduleRestNotice(); tickRest();
 }
@@ -686,26 +690,29 @@ const $app = () => document.getElementById('app');
 let wakeLockReq = false;
 function keepAwake() {
   try {
-    const want = !!S.active && S.settings.awake !== false;
+    const want = !!(S && S.active && S.settings && S.settings.awake !== false);
     if (want && !wakeLock && !wakeLockReq && navigator.wakeLock) {
       wakeLockReq = true;
       navigator.wakeLock.request('screen').then(l => {
         wakeLockReq = false;
-        const stillWant = !!S.active && S.settings.awake !== false;
+        const stillWant = !!(S && S.active && S.settings && S.settings.awake !== false);
         if (!stillWant) {
-          try { l.release(); } catch (e) {}
+          try { const p = l.release(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
           return;
         }
         wakeLock = l;
         l.addEventListener('release', () => { wakeLock = null; });
       }).catch(() => { wakeLockReq = false; });
     } else if (!want && wakeLock) {
-      wakeLock.release();
+      try { const p = wakeLock.release(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
       wakeLock = null;
     }
   } catch (e) {}
 }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') keepAwake();
+  syncElapsed();
+});
 document.addEventListener('focusin', ev => {
   const t = ev.target;
   if (t && t.matches && t.matches('input[inputmode]')) setTimeout(() => { try { t.select(); } catch (e) {} }, 0);
@@ -713,15 +720,25 @@ document.addEventListener('focusin', ev => {
 let elapsedTimer = null;
 function tickElapsed() {
   const el = document.getElementById('elapsed');
-  if (el && S.active) el.textContent = mmss((Date.now() - new Date(S.active.start)) / 1000);
+  if (el && S && S.active) {
+    el.textContent = mmss((Date.now() - new Date(S.active.start)) / 1000);
+  } else if (!S || !S.active) {
+    stopElapsed();
+  }
 }
-function syncElapsed() {
-  if (S.active) {
-    tickElapsed();
-    if (!elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
-  } else if (elapsedTimer) {
+function stopElapsed() {
+  if (elapsedTimer) {
     clearInterval(elapsedTimer);
     elapsedTimer = null;
+  }
+}
+function syncElapsed() {
+  const need = !!(S && S.active && ui.tab === 'train' && (!ui.sub || ui.sub.view !== 'summary') && document.visibilityState === 'visible');
+  if (need) {
+    tickElapsed();
+    if (!elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
+  } else {
+    stopElapsed();
   }
 }
 function render() {
@@ -740,13 +757,13 @@ function stepper(k, e, s, val, step) {
 }
 
 function weekInfo() {
-  const ws = weekStart(today()), done = {}, names = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-  S.sessions.forEach(s => { if (s.d >= ws) done[s.d] = true; });
+  const td = today(), ws = weekStart(td), done = {}, names = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  S.sessions.forEach(s => { if (s.d >= ws && s.d <= td) done[s.d] = true; });
   const planWd = new Set(S.plan.map(p => p.wd)), days = [];
   for (let i = 0; i < 7; i++) {
     const d = parseDate(ws); d.setDate(d.getDate() + i);
     const ds = fmtDate(d);
-    days.push({ n: names[i], done: !!done[ds], today: ds === today(), plan: planWd.has(d.getDay()) });
+    days.push({ n: names[i], done: !!done[ds], today: ds === td, plan: planWd.has(d.getDay()) });
   }
   return { days, count: Object.keys(done).length, target: S.plan.length || 3 };
 }
@@ -761,13 +778,14 @@ function vTrain() {
     <div class="wk">${wi.days.map(d => `<div class="wkd ${d.done ? 'done' : ''} ${d.plan ? 'plan' : ''} ${d.today ? 'today' : ''}">${d.n}<i>${d.done ? '✓' : ''}</i></div>`).join('')}</div>
     <button class="btn-start" data-act="tpls">Начать тренировку</button>
     ${tp ? `<button class="btn-alt" data-act="start" data-day="${tp.id}">По плану: ${esc(tp.name)}</button>` : ''}</section>`;
-  const wsd = weekStart(today());
-  const vol = S.sessions.filter(s => s.d >= wsd).reduce((a, s) => a + sessionVolume(s), 0);
-  const c30 = new Date(); c30.setDate(c30.getDate() - 30); const m30 = S.sessions.filter(s => s.d >= fmtDate(c30)).length;
+  const td = today();
+  const wsd = weekStart(td);
+  const vol = S.sessions.filter(s => s.d >= wsd && s.d <= td).reduce((a, s) => a + sessionVolume(s), 0);
+  const c30 = new Date(); c30.setDate(c30.getDate() - 30); const m30 = S.sessions.filter(s => s.d >= fmtDate(c30) && s.d <= td).length;
   h += `<div class="stats"><div class="stat"><b>${Math.round(vol).toLocaleString('ru-RU')}</b><span>кг за неделю</span></div>
-    <div class="stat"><b>${nf(bodyAt(today()))}</b><span>вес тела, кг</span></div>
+    <div class="stat"><b>${nf(bodyAt(td))}</b><span>вес тела, кг</span></div>
     <div class="stat"><b>${m30}</b><span>тренировок за 30 дн.</span></div></div>`;
-  const last = sortedSessions().pop();
+  const last = sortedSessions().filter(s => s.d <= td).pop();
   if (last) {
     const nm = last.name || (S.plan.find(x => x.id === last.dayId) || {}).name || 'Своя тренировка';
     h += `<div class="card last" data-act="lastopen" data-id="${last.id}"><div class="badge">${esc(nm.slice(0, 1))}</div><div class="grow"><h3>${esc(nm)}</h3>
@@ -1055,6 +1073,7 @@ function exercisesWithData() {
 
 const PERIODS = [['90', '3 мес'], ['180', '6 мес'], ['365', 'Год'], ['all', 'Всё']];
 function vProgress() {
+  const td = today();
   const per = S.settings.per || 'all';
   let cut = '';
   if (per !== 'all') { const cd = new Date(); cd.setDate(cd.getDate() - parseInt(per, 10)); cut = fmtDate(cd); }
@@ -1066,7 +1085,7 @@ function vProgress() {
     h += `<select data-act-change="pex">${exs.map(k => `<option value="${k}" ${k === ui.pex ? 'selected' : ''}>${esc(S.ex[k].name)}</option>`).join('')}</select><div style="height:12px"></div>`;
     const pts = [], pw = [];
     sortedSessions().forEach(s => {
-      if (s.d < cut) return;
+      if (s.d < cut || s.d > td) return;
       const e = s.entries.find(x => x.exId === ui.pex);
       if (!e) return;
       let be = 0, bw = 0, ok = false;
@@ -1080,7 +1099,7 @@ function vProgress() {
     h += `<div class="card"><div class="row sb"><h3>Расчётный максимум (1ПМ)</h3>${delta != null ? `<span class="${delta > 0 ? 'up' : delta < 0 ? 'down' : 'muted'}">${delta > 0 ? '+' : ''}${nf(delta)} кг</span>` : ''}</div>${lineChart(pts)}${note}</div>
       <div class="card"><h3>Лучший рабочий вес</h3>${lineChart(pw, { color: 'var(--c2)' })}</div>`;
     const monthly = per === '365' || per === 'all', agg = {};
-    S.sessions.forEach(s => { if (s.d < cut) return; const k = monthly ? s.d.slice(0, 7) : weekStart(s.d); agg[k] = (agg[k] || 0) + sessionVolume(s); });
+    S.sessions.forEach(s => { if (s.d < cut || s.d > td) return; const k = monthly ? s.d.slice(0, 7) : weekStart(s.d); agg[k] = (agg[k] || 0) + sessionVolume(s); });
     let keys = Object.keys(agg).sort();
     if (cut && keys.length > 1) { const f0 = keys[0], partial = monthly ? (f0 === cut.slice(0, 7) && cut.slice(8) !== '01') : f0 < cut; if (partial) keys = keys.slice(1); }
     if (keys.length > 1) {
@@ -1089,11 +1108,11 @@ function vProgress() {
       else { const dd = parseDate(a0), end = parseDate(b0); while (dd <= end) { full.push(fmtDate(dd)); dd.setDate(dd.getDate() + 7); } }
       keys = full;
     }
-    const cy = today().slice(0, 4);
+    const cy = td.slice(0, 4);
     const wpts = keys.slice(monthly ? (per === 'all' ? -36 : -13) : -26).map(k => ({ x: monthly ? MON[+k.slice(5, 7) - 1] + (k.slice(0, 4) !== cy ? ' ’' + k.slice(2, 4) : '') : lab(k), y: Math.round(agg[k] || 0) }));
     h += `<div class="card"><h3>Объём по ${monthly ? 'месяцам' : 'неделям'}, кг</h3>${barChart(wpts)}</div>`;
   }
-  const all = S.body.slice().sort((a, b) => a.d.localeCompare(b.d));
+  const all = S.body.filter(b => b.d <= td).sort((a, b) => a.d.localeCompare(b.d));
   const bp = all.filter(b => b.d >= cut).map(b => ({ x: lab(b.d), y: b.kg }));
   h += `<div class="card"><div class="row sb"><h3>Вес тела</h3><span class="muted small">цель 70–72 кг</span></div>${lineChart(bp, { color: 'var(--c3)' })}
     <div class="row" style="margin-top:10px"><input id="bodyD" type="date" value="${today()}" style="flex:1.3"><input id="bodyIn" inputmode="decimal" placeholder="Вес, кг" style="flex:1"><button class="primary" data-act="addbody">OK</button></div>
@@ -1191,7 +1210,7 @@ async function doExport() {
       document.body.appendChild(a);
       a.click();
       a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
     }
     S.settings.backup = new Date().toISOString(); if (save()) toast('Копия сохранена'); render();
   } catch (e) {
@@ -1257,7 +1276,8 @@ document.addEventListener('click', ev => {
       setVal(k, ei, si, nv); inp.value = S.active.entries[ei].sets[si][k]; save(); break;
     }
     case 'done': {
-      const st = S.active.entries[ei].sets[si];
+      const st = S.active.entries[ei] && S.active.entries[ei].sets[si];
+      if (!st) break;
       st.done = !st.done; st.t = st.done ? Date.now() : null; save();
       if (st.done) {
         const ents = S.active.entries, br = blockRange(ents, ei);
@@ -1373,7 +1393,8 @@ document.addEventListener('click', ev => {
       const g = pv.ss || ('g' + uid());
       pv.ss = g; ents[ei].ss = g;
       const br = blockRange(ents, ei);
-      const maxSets = Math.max.apply(null, ents.slice(br[0], br[1] + 1).map(x => x.sets.length));
+      const blockEnts = ents.slice(br[0], br[1] + 1);
+      const maxSets = Math.max(...blockEnts.map(x => x.sets.length));
       for (let k = br[0]; k <= br[1]; k++) {
         while (ents[k].sets.length < maxSets) {
           const l = ents[k].sets[ents[k].sets.length - 1] || { w: 0, r: 10 };
@@ -1392,7 +1413,7 @@ document.addEventListener('click', ev => {
     }
     case 'ssdel': {
       const ents = S.active.entries, br = blockRange(ents, ei), mem = ents.slice(br[0], br[1] + 1);
-      const mx = Math.max.apply(null, mem.map(x => x.sets.length));
+      const mx = Math.max(...mem.map(x => x.sets.length));
       if (mx <= 1) { toast('Нужен хотя бы один круг'); break; }
       if (mem.some(x => x.sets.length === mx && x.sets[mx - 1].done) && !confirm('Последний круг уже отмечен ✓. Удалить его?')) break;
       mem.forEach(x => { if (x.sets.length === mx) x.sets.pop(); });
@@ -1418,7 +1439,7 @@ document.addEventListener('click', ev => {
       save(); pickExercise(nid); break;
     }
     case 'finish': finishSession(); break;
-    case 'discard': if (confirm('Отменить тренировку? Введённые данные пропадут.')) { S.active = null; stopRest(); save(); render(); } break;
+    case 'discard': if (confirm('Отменить тренировку? Введённые данные пропадут.')) { S.active = null; stopRest(); stopElapsed(); save(); render(); } break;
     case 'closesum': ui.sub = null; render(); break;
     case 'rest-add': extendRest(15); break;
     case 'rest-stop': stopRest(); break;
@@ -1440,7 +1461,9 @@ document.addEventListener('click', ev => {
     case 'addbody': {
       const v = num(document.getElementById('bodyIn').value);
       if (v < 30 || v > 250) { toast('Введи вес в кг'); break; }
-      const d = document.getElementById('bodyD').value || today(); if (!okDate(d)) { toast('Проверь дату'); break; } const ex = S.body.find(b => b.d === d);
+      const d = document.getElementById('bodyD').value || today();
+      if (!okDate(d) || d > today()) { toast('Дата не может быть в будущем'); break; }
+      const ex = S.body.find(b => b.d === d);
       if (ex) ex.kg = v; else S.body.push({ d, kg: v });
       save(); render(); break;
     }
@@ -1476,8 +1499,15 @@ document.addEventListener('input', ev => {
   if (t.id === 'pickQ') { ui.pick.q = t.value; document.getElementById('pickList').innerHTML = pickList(); return; }
   if (S.active && t.dataset.k && t.dataset.e != null && ui.tab === 'train') { setVal(t.dataset.k, +t.dataset.e, +t.dataset.s, t.value); save(); }
   else if (t.dataset.hs) {
-    const s = S.sessions.find(x => x.id === t.dataset.id); const st = s.entries[+t.dataset.e].sets[+t.dataset.s];
-    const k = t.dataset.hs; st[k] = k === 'r' ? Math.min(999, Math.max(0, Math.round(num(t.value)))) : Math.min(2000, Math.max(0, num(t.value))); save();
+    const s = S.sessions.find(x => x.id === t.dataset.id);
+    const e = s.entries[+t.dataset.e], st = e.sets[+t.dataset.s];
+    const k = t.dataset.hs;
+    st[k] = k === 'r' ? Math.min(999, Math.max(0, Math.round(num(t.value)))) : Math.min(2000, Math.max(0, num(t.value)));
+    if (S.ex[e.exId].bw) {
+      if (k === 'a') { st.w = 0; st.m = 'a'; }
+      else if (k === 'w') { st.a = 0; st.m = 'w'; }
+    }
+    save();
   } else if (t.dataset.p) {
     const it = S.plan[+t.dataset.d] && S.plan[+t.dataset.d].items[+t.dataset.i];
     if (it) {
@@ -1487,8 +1517,19 @@ document.addEventListener('input', ev => {
     }
   }
 });
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Enter' && ev.target && ev.target.id === 'restIn') {
+    ev.target.blur();
+  }
+});
 document.addEventListener('change', ev => {
   const t = ev.target; const a = t.dataset.actChange;
+  if (t.id === 'restIn') {
+    const val = Math.min(600, Math.max(15, Math.round(num(t.value) || 90)));
+    S.settings.rest = val;
+    t.value = val;
+    save();
+  }
   if (t.dataset.k != null && t.dataset.e != null && S.active && S.active.entries[+t.dataset.e]) t.value = S.active.entries[+t.dataset.e].sets[+t.dataset.s][t.dataset.k] || 0;
   if (t.dataset.hs) { const hs = S.sessions.find(x => x.id === t.dataset.id); if (hs) t.value = hs.entries[+t.dataset.e].sets[+t.dataset.s][t.dataset.hs] || 0; }
   if (t.dataset.p === 'sets') { const it = S.plan[+t.dataset.d] && S.plan[+t.dataset.d].items[+t.dataset.i]; if (it) t.value = it.sets; }
@@ -1496,6 +1537,11 @@ document.addEventListener('change', ev => {
   if (a === 'hdate') {
     const s = S.sessions.find(x => x.id === t.dataset.id);
     if (s && okDate(t.value)) {
+      if (t.value > today()) {
+        toast('Дата не может быть в будущем');
+        t.value = s.d;
+        return;
+      }
       const oldStartMs = s.start ? new Date(s.start).getTime() : 0;
       const oldEndMs = s.end ? new Date(s.end).getTime() : 0;
       const durMs = (oldStartMs && oldEndMs && oldEndMs >= oldStartMs) ? (oldEndMs - oldStartMs) : 0;

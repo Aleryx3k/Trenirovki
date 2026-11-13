@@ -502,9 +502,10 @@ class Element {
     this.children = [];
     this.attributes = Object.create(null);
     this._listeners = Object.create(null);
-    this._value = '';
-    this.checked = false;
-    this.disabled = false;
+    this._value = undefined;
+    this._checked = undefined;
+    this._disabled = undefined;
+    this._selected = undefined;
     this.offsetHeight = 48;
     this.offsetWidth = 120;
 
@@ -572,8 +573,61 @@ class Element {
   get className() { return this.attributes.class || ''; }
   set className(v) { this.attributes.class = String(v); }
 
-  get value() { return this._value !== undefined ? this._value : (this.attributes.value || ''); }
-  set value(v) { this._value = String(v); this.attributes.value = String(v); }
+  get value() {
+    if (this.tagName === 'SELECT') {
+      if (this._value !== undefined) return this._value;
+      const options = this.children.filter(c => c.tagName === 'OPTION');
+      if (options.length === 0) return '';
+      const selected = options.find(o => o.selected || o.hasAttribute('selected'));
+      const target = selected || options[0];
+      return target.getAttribute('value') !== null ? target.getAttribute('value') : target.textContent;
+    }
+    if (this.tagName === 'TEXTAREA') {
+      if (this._value !== undefined) return this._value;
+      return this.textContent || this.attributes.value || '';
+    }
+    return this._value !== undefined ? this._value : (this.attributes.value || '');
+  }
+  set value(v) {
+    this._value = String(v);
+    this.attributes.value = String(v);
+    if (this.tagName === 'TEXTAREA') {
+      this.textContent = String(v);
+    } else if (this.tagName === 'SELECT') {
+      const options = this.children.filter(c => c.tagName === 'OPTION');
+      for (const opt of options) {
+        const val = opt.getAttribute('value') !== null ? opt.getAttribute('value') : opt.textContent;
+        opt.selected = (val === String(v));
+      }
+    }
+  }
+
+  get checked() {
+    return this._checked !== undefined ? this._checked : this.hasAttribute('checked');
+  }
+  set checked(v) {
+    this._checked = !!v;
+    if (v) this.setAttribute('checked', '');
+    else this.removeAttribute('checked');
+  }
+
+  get disabled() {
+    return this._disabled !== undefined ? this._disabled : this.hasAttribute('disabled');
+  }
+  set disabled(v) {
+    this._disabled = !!v;
+    if (v) this.setAttribute('disabled', '');
+    else this.removeAttribute('disabled');
+  }
+
+  get selected() {
+    return this._selected !== undefined ? this._selected : this.hasAttribute('selected');
+  }
+  set selected(v) {
+    this._selected = !!v;
+    if (v) this.setAttribute('selected', '');
+    else this.removeAttribute('selected');
+  }
 
   get content() { return this.attributes.content || ''; }
   set content(v) { this.attributes.content = String(v); }
@@ -595,10 +649,18 @@ class Element {
     return this.attributes[k] !== undefined ? this.attributes[k] : null;
   }
   setAttribute(name, val) {
-    this.attributes[name.toLowerCase()] = String(val);
+    const k = name.toLowerCase();
+    this.attributes[k] = String(val);
+    if (k === 'checked') this._checked = true;
+    if (k === 'disabled') this._disabled = true;
+    if (k === 'selected') this._selected = true;
   }
   removeAttribute(name) {
-    delete this.attributes[name.toLowerCase()];
+    const k = name.toLowerCase();
+    delete this.attributes[k];
+    if (k === 'checked') this._checked = false;
+    if (k === 'disabled') this._disabled = false;
+    if (k === 'selected') this._selected = false;
   }
   hasAttribute(name) {
     return this.attributes[name.toLowerCase()] !== undefined;

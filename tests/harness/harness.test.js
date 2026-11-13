@@ -4,7 +4,7 @@
  * Verifies assertions, runner lifecycle hooks, async resolution, timeout detection,
  * app boot, DOM event delegation, navigation, workout lifecycle, and deterministic timers.
  */
-const { describe, it, test, beforeEach, afterEach, beforeAll, afterAll } = require('./runner');
+const { describe, it, test, beforeEach, afterEach, beforeAll, afterAll, Runner } = require('./runner');
 const assert = require('./assert');
 const {
   assertEqual,
@@ -15,7 +15,7 @@ const {
   assertRoughlyEqual,
   AssertionError
 } = assert;
-const { createAppInstance, MemoryStorage, VirtualClock } = require('./env');
+const { createAppInstance, MemoryStorage, VirtualClock, Document } = require('./env');
 
 describe('Harness Self-Test Suite', () => {
 
@@ -172,6 +172,58 @@ describe('Harness Self-Test Suite', () => {
       }
       assert(threw);
     });
+
+    it('assertDeepEqual() handles circular array references without stack overflow', () => {
+      const a = []; a.push(a);
+      const b = []; b.push(b);
+      assertDeepEqual(a, b);
+
+      const nestedA = [1]; nestedA.push([nestedA]);
+      const nestedB = [1]; nestedB.push([nestedB]);
+      assertDeepEqual(nestedA, nestedB);
+
+      let threw = false;
+      try {
+        const c1 = [1]; c1.push(c1);
+        const c2 = [2]; c2.push(c2);
+        assertDeepEqual(c1, c2);
+      } catch (e) {
+        threw = true;
+        assert(e instanceof AssertionError);
+      }
+      assert(threw, 'Unequal circular arrays should throw AssertionError');
+    });
+
+    it('assertDeepEqual() safely compares invalid dates (new Date(NaN))', () => {
+      // Two invalid dates are considered equal
+      assertDeepEqual(new Date(NaN), new Date(NaN));
+
+      // Invalid date vs valid date throws formatted AssertionError without throwing RangeError
+      let threw = false;
+      try {
+        assertDeepEqual(new Date('2026-01-01T00:00:00.000Z'), new Date(NaN));
+      } catch (e) {
+        threw = true;
+        assert(e instanceof AssertionError);
+        assert(e.message.includes('Invalid Date'), 'Diff should mention Invalid Date');
+      }
+      assert(threw, 'Valid vs Invalid Date should throw AssertionError');
+
+      threw = false;
+      try {
+        assertDeepEqual(new Date(NaN), new Date(1000));
+      } catch (e) {
+        threw = true;
+        assert(e instanceof AssertionError);
+      }
+      assert(threw, 'Invalid vs Valid Date should throw AssertionError');
+    });
+
+    it('assertDeepEqual() rejects structural object/array/date type mismatches', () => {
+      assertThrows(() => assertDeepEqual([], {}), AssertionError);
+      assertThrows(() => assertDeepEqual(new Date(), {}), AssertionError);
+      assertThrows(() => assertDeepEqual(/abc/, {}), AssertionError);
+    });
   });
 
   describe('Runner Engine (runner.js) Lifecycle Hooks', () => {
@@ -218,6 +270,61 @@ describe('Harness Self-Test Suite', () => {
 
     it.skip('skips ignored tests gracefully', () => {
       throw new Error('This test was skipped and should not execute');
+    });
+
+    it('it.only runs only targeted test while skipping other tests across suites', async () => {
+      const runner = new Runner();
+      let aRun = false;
+      let bRun = false;
+      let cRun = false;
+      runner.describe('Suite1', () => {
+        runner.it('test A', () => { aRun = true; });
+        runner.it('test B', () => { bRun = true; }, { only: true });
+      });
+      runner.describe('Suite2', () => {
+        runner.it('test C', () => { cRun = true; });
+      });
+      const res = await runner.run();
+      assertEqual(aRun, false, 'test A should be skipped');
+      assertEqual(bRun, true, 'test B should run');
+      assertEqual(cRun, false, 'test C should be skipped');
+      assertEqual(res.passed, 1);
+      assertEqual(res.skipped, 2);
+    });
+
+    it('hanging async promise with timeout properly triggers TimeoutError and records failure', async () => {
+      const runner = new Runner();
+      let subsequentRan = false;
+      runner.describe('WatchdogSuite', () => {
+        runner.it('hangs indefinitely', async () => {
+          await new Promise(() => {}); // never resolves
+        }, 50);
+        runner.it('subsequent test runs', () => {
+          subsequentRan = true;
+        });
+      });
+      const res = await runner.run();
+      assertEqual(res.total, 2);
+      assertEqual(res.failed, 1);
+      assertEqual(res.passed, 1);
+      assertEqual(subsequentRan, true, 'Subsequent test must still run');
+      assertEqual(res.failures.length, 1);
+      assertEqual(res.failures[0].error.name, 'TimeoutError');
+    });
+
+    it('afterAll hook failure records failure in results and failure list', async () => {
+      const runner = new Runner();
+      runner.describe('AfterAllSuite', () => {
+        runner.it('test passes', () => {});
+        runner.afterAll(() => {
+          throw new Error('Teardown crash in cleanup');
+        });
+      });
+      const res = await runner.run();
+      assertEqual(res.failed, 1);
+      assertEqual(res.failures.length, 1);
+      assertEqual(res.failures[0].testName, 'afterAll');
+      assertMatch(res.failures[0].error.message, /afterAll hook failed/);
     });
   });
 
@@ -382,6 +489,69 @@ describe('Harness Self-Test Suite', () => {
       await app.mocks.filesystem.writeFile({ path: 'backup.json', data: '{"test":1}' });
       const readBack = await app.mocks.filesystem.readFile({ path: 'backup.json' });
       assertEqual(readBack.data, '{"test":1}', 'MockFilesystem saved and returned file');
+    });
+
+    it('DOM Element.value correctly returns attribute value from HTML template and supports textarea/select', () => {
+      const doc = new Document();
+      const div = doc.createElement('div');
+      div.innerHTML = '<input id="exW" value="10"><textarea id="notes">Great workout</textarea><select id="grp"><option value="chest">Chest</option><option value="back" selected>Back</option></select>';
+      
+      const input = div.querySelector('#exW');
+      assertEqual(input.value, '10', 'Input value must evaluate to attribute value 10');
+      
+      // Update value programmatically
+      input.value = '25';
+      assertEqual(input.value, '25', 'Input value updates on set');
+      
+      // Clear value programmatically
+      input.value = '';
+      assertEqual(input.value, '', 'Input value can be cleared without falling back to attribute');
+
+      const textarea = div.querySelector('#notes');
+      assertEqual(textarea.value, 'Great workout', 'Textarea value resolves from text content');
+
+      const select = div.querySelector('#grp');
+      assertEqual(select.value, 'back', 'Select value resolves from selected option');
+    });
+
+    it('DOM Element checked and disabled attributes correctly synchronize with properties', () => {
+      const doc = new Document();
+      const div = doc.createElement('div');
+      div.innerHTML = '<input type="checkbox" id="bw" checked disabled><input type="checkbox" id="active">';
+
+      const bw = div.querySelector('#bw');
+      assertEqual(bw.checked, true, 'bw.checked is true when checked attribute present');
+      assertEqual(bw.disabled, true, 'bw.disabled is true when disabled attribute present');
+
+      // Test mutation sync from property to attribute
+      bw.checked = false;
+      assertEqual(bw.checked, false);
+      assertEqual(bw.hasAttribute('checked'), false);
+
+      bw.disabled = false;
+      assertEqual(bw.disabled, false);
+      assertEqual(bw.hasAttribute('disabled'), false);
+
+      const active = div.querySelector('#active');
+      assertEqual(active.checked, false);
+      assertEqual(active.disabled, false);
+
+      active.setAttribute('checked', '');
+      assertEqual(active.checked, true);
+
+      active.removeAttribute('checked');
+      assertEqual(active.checked, false);
+    });
+
+    it('workout template initialization renders input values correctly without shadowing', () => {
+      // Start template workout
+      app.clickAct('tpls');
+      app.click('[data-act="tpl-open"]');
+      app.clickAct('tpl-start');
+
+      // Weight input rendered from template HTML must have value '10'
+      const wVal = app.val('input[data-k="w"]');
+      assertEqual(wVal, '10', 'Initial template weight input value evaluates to 10');
     });
   });
 

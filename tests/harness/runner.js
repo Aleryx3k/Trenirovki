@@ -123,7 +123,6 @@ class Runner {
         err.name = 'TimeoutError';
         reject(err);
       }, timeoutMs);
-      if (timer.unref) timer.unref();
     });
 
     try {
@@ -163,8 +162,31 @@ class Runner {
     });
   }
 
+  suiteHasOnly(suite) {
+    if (suite.tests.some(t => t.only && !t.skip)) return true;
+    return suite.suites.some(s => this.suiteHasOnly(s));
+  }
+
+  skipSuite(suite, verbose = false) {
+    for (const test of suite.tests) {
+      test.status = 'skipped';
+      this.results.total++;
+      this.results.skipped++;
+      if (verbose) console.log(`  - [SKIP] ${test.fullName}`);
+    }
+    for (const sub of suite.suites) {
+      this.skipSuite(sub, verbose);
+    }
+  }
+
   async executeSuite(suite, options = {}) {
-    const { verbose = false, bail = false } = options;
+    const { verbose = false, bail = false, hasOnly = this.suiteHasOnly(this.rootSuite) } = options;
+
+    // When focused tests exist in the suite tree, skip suites that have no focused tests in their subtree
+    if (hasOnly && !this.suiteHasOnly(suite)) {
+      this.skipSuite(suite, verbose);
+      return;
+    }
 
     // 1. Run beforeAll hooks for this suite
     for (const hook of suite.beforeAllHooks) {
@@ -173,9 +195,23 @@ class Runner {
       } catch (err) {
         // Failing beforeAll marks all tests in this suite as failed
         const hookErr = new Error(`beforeAll hook failed: ${err.message}`);
-        for (const t of suite.tests) {
+        if (suite.tests.length === 0) {
+          hookErr.stack = err.stack;
           this.results.total++;
-          this.recordFailure(t, hookErr);
+          this.results.failed++;
+          this.results.failures.push({
+            fullName: `${suite.fullName || 'root'} > beforeAll`,
+            testName: 'beforeAll',
+            suiteName: suite.fullName || 'root',
+            error: hookErr,
+            cleanStack: this.cleanStack(err.stack),
+            duration: 0
+          });
+        } else {
+          for (const t of suite.tests) {
+            this.results.total++;
+            this.recordFailure(t, hookErr);
+          }
         }
         return;
       }
@@ -184,7 +220,7 @@ class Runner {
     try {
       // 2. Run tests in this suite
       for (const test of suite.tests) {
-        if (test.skip) {
+        if (test.skip || (hasOnly && !test.only)) {
           test.status = 'skipped';
           this.results.total++;
           this.results.skipped++;
@@ -242,7 +278,7 @@ class Runner {
 
       // 3. Recursively run child suites
       for (const sub of suite.suites) {
-        await this.executeSuite(sub, options);
+        await this.executeSuite(sub, { ...options, hasOnly });
         if (bail && this.results.failed > 0) return;
       }
     } finally {
@@ -251,7 +287,19 @@ class Runner {
         try {
           await this.runWithTimeout(hook, suite.timeout);
         } catch (err) {
-          console.error(`afterAll hook error in ${suite.fullName}:`, err.message);
+          const hookErr = new Error(`afterAll hook failed in "${suite.fullName || 'root'}": ${err.message}`);
+          hookErr.stack = err.stack;
+          this.results.total++;
+          this.results.failed++;
+          this.results.failures.push({
+            fullName: `${suite.fullName || 'root'} > afterAll`,
+            testName: 'afterAll',
+            suiteName: suite.fullName || 'root',
+            error: hookErr,
+            cleanStack: this.cleanStack(err.stack),
+            duration: 0
+          });
+          if (verbose) console.log(`  ✗ [FAIL] ${suite.fullName || 'root'} > afterAll: ${err.message}`);
         }
       }
     }
@@ -259,7 +307,8 @@ class Runner {
 
   async run(options = {}) {
     const startTime = Date.now();
-    await this.executeSuite(this.rootSuite, options);
+    const hasOnly = this.suiteHasOnly(this.rootSuite);
+    await this.executeSuite(this.rootSuite, { ...options, hasOnly });
     this.results.duration = Date.now() - startTime;
     return this.results;
   }
@@ -268,12 +317,17 @@ class Runner {
 // Singleton instance for ergonomic test definitions
 const defaultRunner = new Runner();
 
+function normalizeOptions(options) {
+  if (typeof options === 'number') return { timeout: options };
+  return options || {};
+}
+
 function describe(name, fn) { return defaultRunner.describe(name, fn); }
 function it(name, fn, options) { return defaultRunner.it(name, fn, options); }
 const test = it;
-it.skip = (name, fn) => defaultRunner.it(name, fn, { skip: true });
+it.skip = (name, fn, options) => defaultRunner.it(name, fn, { ...normalizeOptions(options), skip: true });
 test.skip = it.skip;
-it.only = (name, fn, options) => defaultRunner.it(name, fn, { ...options, only: true });
+it.only = (name, fn, options) => defaultRunner.it(name, fn, { ...normalizeOptions(options), only: true });
 test.only = it.only;
 
 function beforeEach(fn) { defaultRunner.beforeEach(fn); }
@@ -283,6 +337,8 @@ function afterAll(fn) { defaultRunner.afterAll(fn); }
 
 module.exports = {
   Runner,
+  Suite,
+  Test,
   defaultRunner,
   describe,
   it,

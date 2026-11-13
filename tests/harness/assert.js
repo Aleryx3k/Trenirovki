@@ -70,6 +70,10 @@ function assertNotEqual(actual, unexpected, message) {
   }
 }
 
+function formatDate(d) {
+  return Number.isNaN(d.getTime()) ? 'Invalid Date' : d.toISOString();
+}
+
 function diffObjects(actual, expected, path = '', diffs = [], seen = new WeakMap()) {
   if (Object.is(actual, expected)) return diffs;
 
@@ -86,58 +90,100 @@ function diffObjects(actual, expected, path = '', diffs = [], seen = new WeakMap
     return diffs;
   }
 
-  if (actual instanceof Date && expected instanceof Date) {
-    if (actual.getTime() !== expected.getTime()) {
-      diffs.push({
-        path: path || 'root',
-        message: `Date mismatch: expected ${expected.toISOString()}, got ${actual.toISOString()}`,
-        expected,
-        actual
-      });
-    }
-    return diffs;
-  }
-
-  if (actual instanceof RegExp && expected instanceof RegExp) {
-    if (actual.toString() !== expected.toString()) {
-      diffs.push({
-        path: path || 'root',
-        message: `RegExp mismatch: expected ${expected.toString()}, got ${actual.toString()}`,
-        expected,
-        actual
-      });
-    }
-    return diffs;
-  }
-
-  if (Array.isArray(actual) && Array.isArray(expected)) {
-    if (actual.length !== expected.length) {
-      diffs.push({
-        path: path ? `${path}.length` : 'length',
-        message: `Array length mismatch: expected ${expected.length}, got ${actual.length}`,
-        expected: expected.length,
-        actual: actual.length
-      });
-    }
-    const maxLen = Math.max(actual.length, expected.length);
-    for (let i = 0; i < maxLen; i++) {
-      const p = `${path}[${i}]`;
-      if (i >= actual.length) {
-        diffs.push({ path: p, message: `Missing array element at index ${i}`, expected: expected[i], actual: undefined });
-      } else if (i >= expected.length) {
-        diffs.push({ path: p, message: `Unexpected extra array element at index ${i}`, expected: undefined, actual: actual[i] });
-      } else {
-        diffObjects(actual[i], expected[i], p, diffs, seen);
-      }
-    }
-    return diffs;
-  }
-
   if (typeA === 'object') {
-    if (seen.has(actual) && seen.get(actual) === expected) {
+    let seenSet = seen.get(actual);
+    if (seenSet && seenSet.has(expected)) {
       return diffs; // Circular reference cycle matched
     }
-    seen.set(actual, expected);
+    if (!seenSet) {
+      seenSet = new Set();
+      seen.set(actual, seenSet);
+    }
+    seenSet.add(expected);
+
+    if (actual instanceof Date && expected instanceof Date) {
+      const timeA = actual.getTime();
+      const timeB = expected.getTime();
+      const isNanA = Number.isNaN(timeA);
+      const isNanB = Number.isNaN(timeB);
+      if (isNanA && isNanB) {
+        return diffs;
+      }
+      if (isNanA !== isNanB || timeA !== timeB) {
+        diffs.push({
+          path: path || 'root',
+          message: `Date mismatch: expected ${formatDate(expected)}, got ${formatDate(actual)}`,
+          expected,
+          actual
+        });
+      }
+      return diffs;
+    }
+
+    if (actual instanceof RegExp && expected instanceof RegExp) {
+      if (actual.toString() !== expected.toString()) {
+        diffs.push({
+          path: path || 'root',
+          message: `RegExp mismatch: expected ${expected.toString()}, got ${actual.toString()}`,
+          expected,
+          actual
+        });
+      }
+      return diffs;
+    }
+
+    if (Array.isArray(actual) !== Array.isArray(expected)) {
+      diffs.push({
+        path: path || 'root',
+        message: `Type mismatch: expected ${Array.isArray(expected) ? 'Array' : 'Object'}, got ${Array.isArray(actual) ? 'Array' : 'Object'}`,
+        expected,
+        actual
+      });
+      return diffs;
+    }
+
+    if ((actual instanceof Date) !== (expected instanceof Date)) {
+      diffs.push({
+        path: path || 'root',
+        message: `Type mismatch: expected ${expected instanceof Date ? 'Date' : 'Object'}, got ${actual instanceof Date ? 'Date' : 'Object'}`,
+        expected,
+        actual
+      });
+      return diffs;
+    }
+
+    if ((actual instanceof RegExp) !== (expected instanceof RegExp)) {
+      diffs.push({
+        path: path || 'root',
+        message: `Type mismatch: expected ${expected instanceof RegExp ? 'RegExp' : 'Object'}, got ${actual instanceof RegExp ? 'RegExp' : 'Object'}`,
+        expected,
+        actual
+      });
+      return diffs;
+    }
+
+    if (Array.isArray(actual) && Array.isArray(expected)) {
+      if (actual.length !== expected.length) {
+        diffs.push({
+          path: path ? `${path}.length` : 'length',
+          message: `Array length mismatch: expected ${expected.length}, got ${actual.length}`,
+          expected: expected.length,
+          actual: actual.length
+        });
+      }
+      const maxLen = Math.max(actual.length, expected.length);
+      for (let i = 0; i < maxLen; i++) {
+        const p = `${path}[${i}]`;
+        if (i >= actual.length) {
+          diffs.push({ path: p, message: `Missing array element at index ${i}`, expected: expected[i], actual: undefined });
+        } else if (i >= expected.length) {
+          diffs.push({ path: p, message: `Unexpected extra array element at index ${i}`, expected: undefined, actual: actual[i] });
+        } else {
+          diffObjects(actual[i], expected[i], p, diffs, seen);
+        }
+      }
+      return diffs;
+    }
 
     const keysA = Object.keys(actual);
     const keysB = Object.keys(expected);
